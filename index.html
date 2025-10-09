@@ -40,9 +40,6 @@
   .fade-enter-active { opacity: 1; transform: scale(1); transition: opacity 0.3s ease, transform 0.3s ease; }
   .fade-leave { opacity: 1; transform: scale(1); }
   .fade-leave-active { opacity: 0; transform: scale(0.95); transition: opacity 0.2s ease, transform 0.2s ease; }
-  #chatContainer {
-    max-width: 320px;
-  }
 </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -54,14 +51,22 @@
   </div>
 </div>
 
-<!-- Chat container fixado no canto inferior direito -->
-<div id="chatContainer" class="fixed bottom-4 right-4 w-80 max-w-full bg-white rounded-lg shadow-lg p-4 flex flex-col z-50">
-  <div id="chatMessages" class="flex-1 overflow-auto max-h-60 mb-2 border rounded p-2 bg-gray-100"></div>
-  <input id="chatInput" type="text" placeholder="Digite sua mensagem..." class="border rounded px-3 py-2 w-full" />
-  <button id="sendChatBtn" class="bg-blue-500 text-white rounded py-2 mt-2 hover:bg-blue-600">Enviar</button>
+<div id="globalMessageModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+  <div class="bg-white rounded-lg shadow-lg p-6 max-w-md text-center">
+    <h2 class="text-xl font-bold mb-4">Mensagem da Moderação</h2>
+    <p id="globalMessageText" class="mb-6"></p>
+    <button id="closeGlobalMessageBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Fechar</button>
+  </div>
 </div>
 
-<!-- Modal Configurações (Admin e Membro) -->
+<button onclick="openSettingsModal()" class="fixed top-4 right-4 bg-gray-800 text-white p-3 rounded-full shadow-lg hover:bg-gray-700 transition" title="Configurações">
+  <i data-feather="settings" class="w-6 h-6"></i>
+</button>
+
+<button id="adminShieldBtn" onclick="openAdminPanel()" class="fixed top-4 right-16 bg-gray-800 text-white p-3 rounded-full shadow-lg hover:bg-gray-700 transition hidden" title="Painel Administrativo">
+  <i data-feather="shield" class="w-6 h-6"></i>
+</button>
+
 <div id="settingsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
   <div id="settingsContent" class="bg-white rounded-xl shadow-xl p-8 w-full max-w-md overflow-auto max-h-[90vh] fade-enter">
     <div class="flex justify-between items-center mb-6 border-b pb-4">
@@ -420,6 +425,116 @@ function renderBars() {
     const canEdit = isAdmin || b.member === currentUser;
     const relativeProgress = ((b.progress || 0) / (b.goal || 100)) * 100;
 
+    // Leaderboard
+    const lbItem = document.createElement('div');
+    lbItem.textContent = `${b.member}: ${b.progress || 0}%`;
+    lbItem.className = 'bg-gray-100 p-2 rounded';
+    leaderboard.appendChild(lbItem);
+
+    // Barra de progresso
+    const barEl = document.createElement('div');
+    barEl.className = 'bg-white rounded-lg shadow p-6 mb-4';
+
+    const header = document.createElement('div');
+    header.className = 'flex justify-between items-center mb-4';
+
+    const title = document.createElement('h3');
+    title.className = 'text-lg font-semibold';
+    title.textContent = `${b.name} | ${b.member} | Meta: ${b.goal || 100}%`;
+    header.appendChild(title);
+
+    if (canEdit) {
+      // Botão Excluir
+      const delBtn = document.createElement('button');
+      delBtn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600';
+      delBtn.textContent = 'Excluir';
+      delBtn.addEventListener('click', () => deleteBar(b.key));
+      header.appendChild(delBtn);
+
+      // Botão Editar
+      const editBtn = document.createElement('button');
+      editBtn.className = 'bg-yellow-500 text-white px-2 py-1 rounded hover:bg-yellow-600 ml-2';
+      editBtn.textContent = 'Editar';
+      editBtn.addEventListener('click', () => openEditBarModal(b));
+      header.appendChild(editBtn);
+    }
+
+    barEl.appendChild(header);
+
+    const progressRow = document.createElement('div');
+    progressRow.className = 'flex items-center space-x-4 mb-2';
+
+    const progressWrap = document.createElement('div');
+    progressWrap.className = 'flex-1 h-4 bg-gray-200 rounded-full overflow-hidden';
+
+    const progressBar = document.createElement('div');
+    progressBar.className = 'progress-bar h-full rounded-full';
+    progressBar.style.width = `${relativeProgress}%`;
+    progressBar.style.backgroundColor = barColor;
+
+    progressWrap.appendChild(progressBar);
+    progressRow.appendChild(progressWrap);
+
+    const progressText = document.createElement('span');
+    progressText.textContent = `${b.progress || 0}% / ${b.goal || 100}%`;
+    progressRow.appendChild(progressText);
+
+    barEl.appendChild(progressRow);
+
+    // Upload prova
+    const uploadRow = document.createElement('div');
+    uploadRow.className = 'flex items-center gap-2';
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.id = `progressPhoto-${b.key}`;
+    fileInput.className = canEdit ? 'block' : 'hidden';
+
+    fileInput.addEventListener('change', e => {
+      handleFileUpload(b.key, e.target.files[0]);
+      e.target.value = '';
+    });
+
+    const label = document.createElement('label');
+    label.htmlFor = fileInput.id;
+    label.className = `cursor-pointer bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center gap-2 ${canEdit ? '' : 'hidden'}`;
+    label.innerHTML = `<i data-feather="camera"></i> Enviar Prova`;
+
+    uploadRow.appendChild(fileInput);
+    uploadRow.appendChild(label);
+    barEl.appendChild(uploadRow);
+
+    container.appendChild(barEl);
+  });
+
+  feather.replace();
+}
+
+// Função para editar barra
+function openEditBarModal(bar) {
+  const newName = prompt('Editar nome da meta:', bar.name);
+  if (newName !== null) bar.name = newName;
+
+  const newGoalStr = prompt('Editar valor da meta (%):', bar.goal);
+  if (newGoalStr !== null && !isNaN(newGoalStr)) bar.goal = parseFloat(newGoalStr);
+
+  set(ref(db, `bars/${bar.key}`), {
+    name: bar.name,
+    member: bar.member,
+    progress: bar.progress,
+    goal: bar.goal,
+    proofs: bar.proofs || {}
+  }).then(() => {
+    showNotification('Meta atualizada!');
+    renderBars();
+  });
+}
+
+  bars.forEach(b => {
+    const canEdit = isAdmin || b.member === currentUser;
+    const relativeProgress = ((b.progress || 0) / (b.goal || 100)) * 100;
+
     const lbItem = document.createElement('div');
     lbItem.textContent = `${b.member}: ${b.progress || 0}%`;
     lbItem.className = 'bg-gray-100 p-2 rounded';
@@ -429,61 +544,17 @@ function renderBars() {
     barEl.className = 'bg-white rounded-lg shadow p-6 mb-4';
 
     const header = document.createElement('div');
-    header.className = 'flex flex-col gap-3 mb-4';
+    header.className = 'flex justify-between items-center mb-4';
 
-    // Input nome meta
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.value = b.name;
-    nameInput.disabled = !canEdit;
-    nameInput.className = 'border rounded px-2 py-1 w-full';
-    nameInput.addEventListener('change', () => {
-      set(ref(db, `bars/${b.key}/name`), nameInput.value).then(() => {
-        showNotification('Nome da meta atualizado!');
-      });
-    });
+    const title = document.createElement('h3');
+    title.className = 'text-lg font-semibold';
+    title.textContent = `${b.name} | ${b.member} | Meta: ${b.goal || 100}%`;
 
-    // Input meta %
-    const goalInput = document.createElement('input');
-    goalInput.type = 'number';
-    goalInput.value = b.goal || 100;
-    goalInput.min = 1;
-    goalInput.max = 100;
-    goalInput.disabled = !canEdit;
-    goalInput.className = 'border rounded px-2 py-1 w-24';
-    goalInput.addEventListener('change', () => {
-      const val = parseFloat(goalInput.value);
-      if (isNaN(val) || val < 1 || val > 100) {
-        alert('Digite uma meta válida entre 1 e 100');
-        goalInput.value = b.goal || 100;
-        return;
-      }
-      set(ref(db, `bars/${b.key}/goal`), val).then(() => {
-        showNotification('Meta da barra atualizada!');
-      });
-    });
-
-    const inputsContainer = document.createElement('div');
-    inputsContainer.className = 'flex items-center gap-4';
-
-    const labelName = document.createElement('label');
-    labelName.textContent = 'Nome da Meta:';
-    labelName.className = 'font-semibold';
-
-    const labelGoal = document.createElement('label');
-    labelGoal.textContent = 'Meta (%):';
-    labelGoal.className = 'font-semibold ml-6';
-
-    inputsContainer.appendChild(labelName);
-    inputsContainer.appendChild(nameInput);
-    inputsContainer.appendChild(labelGoal);
-    inputsContainer.appendChild(goalInput);
-
-    header.appendChild(inputsContainer);
+    header.appendChild(title);
 
     if (canEdit) {
       const delBtn = document.createElement('button');
-      delBtn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 mt-2 w-24';
+      delBtn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600';
       delBtn.textContent = 'Excluir';
       delBtn.addEventListener('click', () => deleteBar(b.key));
       header.appendChild(delBtn);
@@ -511,6 +582,30 @@ function renderBars() {
 
     barEl.appendChild(progressRow);
 
+    const uploadRow = document.createElement('div');
+    uploadRow.className = 'flex items-center gap-2';
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.id = `progressPhoto-${b.key}`;
+    fileInput.className = canEdit ? 'block' : 'hidden';
+
+    fileInput.addEventListener('change', e => {
+      handleFileUpload(b.key, e.target.files[0]);
+      e.target.value = '';
+    });
+
+    const label = document.createElement('label');
+    label.htmlFor = fileInput.id;
+    label.className = `cursor-pointer bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center gap-2 ${canEdit ? '' : 'hidden'}`;
+    label.innerHTML = `<i data-feather="camera"></i> Enviar Prova`;
+
+    uploadRow.appendChild(fileInput);
+    uploadRow.appendChild(label);
+
+    barEl.appendChild(uploadRow);
+
     container.appendChild(barEl);
   });
 
@@ -524,9 +619,39 @@ function deleteBar(key) {
   }
 }
 
-// Outras funções permanecem inalteradas...
+function handleFileUpload(barKey, file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    push(ref(db, `bars/${barKey}/proofs`), { date: new Date().toISOString(), image: e.target.result }).then(() => {
+      get(ref(db, `bars/${barKey}/progress`)).then(snap => {
+        let currentProgress = snap.val() || 0;
+        const newProgress = Math.min(currentProgress + 10, 100);
+        set(ref(db, `bars/${barKey}/progress`), newProgress).then(() => {
+          showNotification('Prova enviada e progresso atualizado');
+        });
+      });
+    });
+  };
+  reader.readAsDataURL(file);
+}
 
-// Firebase listener para atualizar as barras em tempo real
+function sendGlobalMessage() {
+  const msg = document.getElementById('globalMessageInput').value.trim();
+  if (!msg) { alert('Digite uma mensagem'); return; }
+  set(ref(db, 'globalMessage'), msg).then(() => {
+    showNotification('Mensagem global enviada!');
+    document.getElementById('globalMessageInput').value = '';
+    sessionStorage.removeItem('globalMessageClosed');
+  });
+}
+
+function proofsToArray(proofsObj) {
+  if (!proofsObj) return [];
+  if (Array.isArray(proofsObj)) return proofsObj.map((p, idx) => ({ proofKey: idx, proof: p }));
+  return Object.entries(proofsObj).map(([k, v]) => ({ proofKey: k, proof: v }));
+}
+
 onValue(ref(db, 'bars'), snap => {
   const raw = snap.val() || {};
   bars = Object.entries(raw).map(([key, val]) => {
@@ -540,7 +665,151 @@ onValue(ref(db, 'bars'), snap => {
     };
   });
   renderBars();
+  if (isAdmin) renderProofsPanel();
 });
+
+onValue(ref(db, 'globalMessage'), snap => {
+  const msg = snap.val();
+  if (msg) {
+    const closedMsg = sessionStorage.getItem('globalMessageClosed');
+    if (closedMsg !== msg) {
+      const modal = document.getElementById('globalMessageModal');
+      document.getElementById('globalMessageText').textContent = msg;
+      modal.classList.remove('hidden');
+
+      document.getElementById('closeGlobalMessageBtn').onclick = () => {
+        modal.classList.add('hidden');
+        sessionStorage.setItem('globalMessageClosed', msg);
+      };
+    }
+  } else {
+    document.getElementById('globalMessageModal').classList.add('hidden');
+  }
+});
+
+onValue(ref(db, 'credentials'), () => loadCredentials());
+
+function loadCredentials() {
+  const adminList = document.getElementById('adminList');
+  adminList.innerHTML = '';
+  get(ref(db, 'credentials')).then(snap => {
+    const creds = snap.val() || {};
+    Object.entries(creds).forEach(([key, val]) => {
+      const div = document.createElement('div');
+      div.className = 'flex justify-between items-center bg-gray-100 p-2 rounded';
+
+      const text = document.createElement('span');
+      text.textContent = `Usuário: ${val.username} | Senha: ${val.password}`;
+
+      const btn = document.createElement('button');
+      btn.textContent = 'Excluir';
+      btn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 ml-4';
+      btn.addEventListener('click', () => deleteCredential(key));
+
+      div.appendChild(text);
+      div.appendChild(btn);
+      adminList.appendChild(div);
+    });
+  });
+}
+
+function deleteCredential(key) {
+  if (confirm('Deseja realmente excluir esta credencial?')) {
+    remove(ref(db, 'credentials/' + key)).then(() => {
+      showNotification('Credencial excluída com sucesso!');
+      loadCredentials();
+    });
+  }
+}
+
+function renderProofsPanel() {
+  const proofsRoot = document.getElementById('proofsPanelRoot');
+  proofsRoot.innerHTML = '';
+
+  const header = document.createElement('h4');
+  header.className = 'font-semibold mb-2';
+  header.textContent = 'Provas Enviadas (Admin)';
+  proofsRoot.appendChild(header);
+
+  bars.forEach(bar => {
+    const proofsArr = proofsToArray(bar.proofs);
+    if (!proofsArr.length) return;
+
+    const barDiv = document.createElement('div');
+    barDiv.className = 'mb-4 border-b pb-2';
+
+    const title = document.createElement('p');
+    title.innerHTML = `<strong>${bar.name} | ${bar.member}</strong>`;
+    barDiv.appendChild(title);
+
+    proofsArr.forEach(({ proofKey, proof }) => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-2 mb-2';
+
+      const img = document.createElement('img');
+      img.src = proof.image;
+      img.alt = 'Prova';
+      img.className = 'w-24 h-16 object-cover rounded border';
+
+      const info = document.createElement('div');
+      info.className = 'flex flex-col';
+
+      const dateSpan = document.createElement('span');
+      dateSpan.className = 'text-sm text-gray-600';
+      dateSpan.textContent = proof.date ? new Date(proof.date).toLocaleString() : '';
+
+      const rejBtn = document.createElement('button');
+      rejBtn.className = 'bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-xs mt-1';
+      rejBtn.textContent = 'Rejeitar';
+      rejBtn.addEventListener('click', () => rejectProof(bar.key, proofKey));
+
+      info.appendChild(dateSpan);
+      info.appendChild(rejBtn);
+
+      row.appendChild(img);
+      row.appendChild(info);
+
+      barDiv.appendChild(row);
+    });
+
+    proofsRoot.appendChild(barDiv);
+  });
+}
+
+function rejectProof(barKey, proofKey) {
+  if (!confirm('Deseja rejeitar esta prova? O membro terá que enviar outra prova válida.')) return;
+
+  remove(ref(db, `bars/${barKey}/proofs/${proofKey}`)).then(() => {
+    set(ref(db, `bars/${barKey}/progress`), 0).then(() => {
+      showNotification('Prova rejeitada. Progresso zerado para reenvio.');
+      renderProofsPanel();
+    });
+  });
+}
+
+async function createCredential() {
+  const user = document.getElementById('newCredentialUser').value.trim();
+  const pass = document.getElementById('newCredentialPass').value.trim();
+
+  if (!user || !pass) {
+    alert('Preencha usuário e senha para a credencial.');
+    return;
+  }
+
+  try {
+    await push(ref(db, 'credentials'), {
+      username: user,
+      password: pass
+    });
+    showNotification('Credencial gerada com sucesso!');
+    document.getElementById('newCredentialUser').value = '';
+    document.getElementById('newCredentialPass').value = '';
+    loadCredentials();
+  } catch (error) {
+    alert('Erro ao gerar credencial: ' + error.message);
+  }
+}
+
 // Expoe funções para os botões onclick
 window.openSettingsModal = openSettingsModal;
 window.closeSettingsModal = closeSettingsModal;
@@ -558,12 +827,13 @@ window.changeSiteTitleColorAdmin = changeSiteTitleColorAdmin;
 window.createCredential = createCredential;
 window.loadCredentials = loadCredentials;
 window.deleteCredential = deleteCredential;
+window.renderBars = renderBars;
+window.deleteBar = deleteBar;
 window.handleFileUpload = handleFileUpload;
 window.sendGlobalMessage = sendGlobalMessage;
 window.renderProofsPanel = renderProofsPanel;
 window.rejectProof = rejectProof;
-window.renderBars = renderBars;
-window.deleteBar = deleteBar;
+
 </script>
 
 </body>
