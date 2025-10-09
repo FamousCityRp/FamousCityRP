@@ -167,7 +167,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-import { getDatabase, ref, set, push, onValue, get, remove } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-database.js";
+import { getDatabase, ref, set, push, onValue, get, remove, update } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDun-EEYvE7pUYtJCS7APB6J4xSD-gN0oE",
@@ -193,6 +193,25 @@ function showNotification(msg) {
   document.getElementById('notification-message').textContent = msg;
   el.classList.remove('hidden');
   setTimeout(() => el.classList.add('hidden'), 2500);
+}
+
+function loadLocalThemeColors() {
+  const themeColor = localStorage.getItem('themeColor');
+  const barColorLocal = localStorage.getItem('barColor');
+  const siteTitleColor = localStorage.getItem('siteTitleColor');
+
+  if (themeColor) document.documentElement.style.setProperty('--primary-color', themeColor);
+  if (barColorLocal) barColor = barColorLocal;
+  if (siteTitleColor) {
+    document.documentElement.style.setProperty('--site-title-color', siteTitleColor);
+    document.getElementById('siteTitle').style.color = siteTitleColor;
+    document.getElementById('memberSiteTitleColor').value = siteTitleColor;
+  }
+}
+
+function loadLocalBackgroundImage() {
+  const dataUrl = localStorage.getItem('memberBackgroundImage');
+  if (dataUrl) document.body.style.backgroundImage = `url(${dataUrl})`;
 }
 
 function openSettingsModal() {
@@ -236,6 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const adminLogged = sessionStorage.getItem('adminLogged');
   if (adminLogged === 'true') {
     isAdmin = true;
+    currentUser = sessionStorage.getItem('currentUser') || 'Admin'; // Pega o usuário logado
     showAdminShieldIcon();
     loadCredentials();
     renderProofsPanel();
@@ -268,10 +288,12 @@ async function loginAdmin() {
     isAdmin = true;
     currentUser = user;
     sessionStorage.setItem('adminLogged', 'true');
+    sessionStorage.setItem('currentUser', user); // Salva o nome do usuário/admin
     showNotification('Login de administrador realizado!');
     showAdminShieldIcon();
     loadCredentials();
     renderProofsPanel();
+    closeSettingsModal();
   } else alert('Usuário ou senha incorretos.');
 }
 
@@ -421,17 +443,20 @@ function renderBars() {
   const leaderboard = document.getElementById('leaderboard');
   leaderboard.innerHTML = '';
 
-  bars.forEach(b => {
-    const canEdit = isAdmin || b.member === currentUser;
-    const relativeProgress = ((b.progress || 0) / (b.goal || 100)) * 100;
+  // Ordena as barras por progresso (do maior para o menor) para o leaderboard
+  const sortedBars = [...bars].sort((a, b) => (b.progress || 0) - (a.progress || 0));
 
-    // Leaderboard
+  sortedBars.forEach(b => {
     const lbItem = document.createElement('div');
     lbItem.textContent = `${b.member}: ${b.progress || 0}%`;
     lbItem.className = 'bg-gray-100 p-2 rounded';
     leaderboard.appendChild(lbItem);
+  });
+  
+  bars.forEach(b => {
+    const canEdit = isAdmin || b.member === currentUser;
+    const relativeProgress = ((b.progress || 0) / (b.goal || 100)) * 100;
 
-    // Barra de progresso
     const barEl = document.createElement('div');
     barEl.className = 'bg-white rounded-lg shadow p-6 mb-4';
 
@@ -441,126 +466,71 @@ function renderBars() {
     const title = document.createElement('h3');
     title.className = 'text-lg font-semibold';
     title.textContent = `${b.name} | ${b.member} | Meta: ${b.goal || 100}%`;
-    header.appendChild(title);
+
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.className = 'flex gap-2';
 
     if (canEdit) {
+      // Botão Editar
+      const editBtn = document.createElement('button');
+      editBtn.className = 'bg-yellow-500 text-white px-2 py-1 rounded hover:bg-yellow-600';
+      editBtn.textContent = 'Editar';
+      editBtn.addEventListener('click', () => toggleEditForm(b.key));
+      buttonsContainer.appendChild(editBtn);
+      
       // Botão Excluir
       const delBtn = document.createElement('button');
       delBtn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600';
       delBtn.textContent = 'Excluir';
       delBtn.addEventListener('click', () => deleteBar(b.key));
-      header.appendChild(delBtn);
-
-      // Botão Editar
-      const editBtn = document.createElement('button');
-      editBtn.className = 'bg-yellow-500 text-white px-2 py-1 rounded hover:bg-yellow-600 ml-2';
-      editBtn.textContent = 'Editar';
-      editBtn.addEventListener('click', () => openEditBarModal(b));
-      header.appendChild(editBtn);
+      buttonsContainer.appendChild(delBtn);
+    }
+    
+    // Botão de Edição de Progresso (Somente Admin)
+    if (isAdmin) {
+       const editProgressBtn = document.createElement('button');
+       editProgressBtn.className = 'bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600';
+       editProgressBtn.textContent = 'Editar %';
+       editProgressBtn.addEventListener('click', () => toggleProgressEditForm(b.key));
+       buttonsContainer.appendChild(editProgressBtn);
     }
 
-    barEl.appendChild(header);
-
-    const progressRow = document.createElement('div');
-    progressRow.className = 'flex items-center space-x-4 mb-2';
-
-    const progressWrap = document.createElement('div');
-    progressWrap.className = 'flex-1 h-4 bg-gray-200 rounded-full overflow-hidden';
-
-    const progressBar = document.createElement('div');
-    progressBar.className = 'progress-bar h-full rounded-full';
-    progressBar.style.width = `${relativeProgress}%`;
-    progressBar.style.backgroundColor = barColor;
-
-    progressWrap.appendChild(progressBar);
-    progressRow.appendChild(progressWrap);
-
-    const progressText = document.createElement('span');
-    progressText.textContent = `${b.progress || 0}% / ${b.goal || 100}%`;
-    progressRow.appendChild(progressText);
-
-    barEl.appendChild(progressRow);
-
-    // Upload prova
-    const uploadRow = document.createElement('div');
-    uploadRow.className = 'flex items-center gap-2';
-
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = 'image/*';
-    fileInput.id = `progressPhoto-${b.key}`;
-    fileInput.className = canEdit ? 'block' : 'hidden';
-
-    fileInput.addEventListener('change', e => {
-      handleFileUpload(b.key, e.target.files[0]);
-      e.target.value = '';
-    });
-
-    const label = document.createElement('label');
-    label.htmlFor = fileInput.id;
-    label.className = `cursor-pointer bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center gap-2 ${canEdit ? '' : 'hidden'}`;
-    label.innerHTML = `<i data-feather="camera"></i> Enviar Prova`;
-
-    uploadRow.appendChild(fileInput);
-    uploadRow.appendChild(label);
-    barEl.appendChild(uploadRow);
-
-    container.appendChild(barEl);
-  });
-
-  feather.replace();
-}
-
-// Função para editar barra
-function openEditBarModal(bar) {
-  const newName = prompt('Editar nome da meta:', bar.name);
-  if (newName !== null) bar.name = newName;
-
-  const newGoalStr = prompt('Editar valor da meta (%):', bar.goal);
-  if (newGoalStr !== null && !isNaN(newGoalStr)) bar.goal = parseFloat(newGoalStr);
-
-  set(ref(db, `bars/${bar.key}`), {
-    name: bar.name,
-    member: bar.member,
-    progress: bar.progress,
-    goal: bar.goal,
-    proofs: bar.proofs || {}
-  }).then(() => {
-    showNotification('Meta atualizada!');
-    renderBars();
-  });
-}
-
-  bars.forEach(b => {
-    const canEdit = isAdmin || b.member === currentUser;
-    const relativeProgress = ((b.progress || 0) / (b.goal || 100)) * 100;
-
-    const lbItem = document.createElement('div');
-    lbItem.textContent = `${b.member}: ${b.progress || 0}%`;
-    lbItem.className = 'bg-gray-100 p-2 rounded';
-    leaderboard.appendChild(lbItem);
-
-    const barEl = document.createElement('div');
-    barEl.className = 'bg-white rounded-lg shadow p-6 mb-4';
-
-    const header = document.createElement('div');
-    header.className = 'flex justify-between items-center mb-4';
-
-    const title = document.createElement('h3');
-    title.className = 'text-lg font-semibold';
-    title.textContent = `${b.name} | ${b.member} | Meta: ${b.goal || 100}%`;
 
     header.appendChild(title);
-
-    if (canEdit) {
-      const delBtn = document.createElement('button');
-      delBtn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600';
-      delBtn.textContent = 'Excluir';
-      delBtn.addEventListener('click', () => deleteBar(b.key));
-      header.appendChild(delBtn);
-    }
+    header.appendChild(buttonsContainer);
 
     barEl.appendChild(header);
+
+    // Formulário de Edição de Nome/Meta (visibilidade controlada via JS)
+    const editForm = document.createElement('div');
+    editForm.id = `editForm-${b.key}`;
+    editForm.className = 'bg-gray-50 p-4 rounded mb-4 hidden';
+    editForm.innerHTML = `
+        <h4 class="font-semibold mb-2">Editar Meta</h4>
+        <div class="flex gap-2">
+            <input type="text" id="editBarName-${b.key}" value="${b.name}" placeholder="Novo Nome da Meta" class="border rounded p-2 flex-1" />
+            <input type="number" id="editBarGoal-${b.key}" value="${b.goal}" placeholder="Nova Meta (%)" class="border rounded p-2 w-24" />
+            <button id="saveEditBtn-${b.key}" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Salvar</button>
+            <button onclick="toggleEditForm('${b.key}')" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">Cancelar</button>
+        </div>
+    `;
+    barEl.appendChild(editForm);
+    document.getElementById(`saveEditBtn-${b.key}`).addEventListener('click', () => editBar(b.key));
+    
+    // Formulário de Edição de Progresso (visibilidade controlada via JS)
+    const editProgressForm = document.createElement('div');
+    editProgressForm.id = `editProgressForm-${b.key}`;
+    editProgressForm.className = 'bg-gray-50 p-4 rounded mb-4 hidden';
+    editProgressForm.innerHTML = `
+        <h4 class="font-semibold mb-2">Editar Progresso (%)</h4>
+        <div class="flex gap-2">
+            <input type="number" id="editBarProgress-${b.key}" value="${b.progress}" placeholder="Novo Progresso (%)" class="border rounded p-2 flex-1" min="0" max="100" />
+            <button id="saveProgressBtn-${b.key}" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Salvar %</button>
+            <button onclick="toggleProgressEditForm('${b.key}')" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">Cancelar</button>
+        </div>
+    `;
+    barEl.appendChild(editProgressForm);
+    document.getElementById(`saveProgressBtn-${b.key}`).addEventListener('click', () => editBarProgress(b.key));
 
     const progressRow = document.createElement('div');
     progressRow.className = 'flex items-center space-x-4 mb-2';
@@ -611,6 +581,65 @@ function openEditBarModal(bar) {
 
   feather.replace();
 }
+
+function toggleEditForm(key) {
+  const form = document.getElementById(`editForm-${key}`);
+  form.classList.toggle('hidden');
+}
+
+function toggleProgressEditForm(key) {
+  const form = document.getElementById(`editProgressForm-${key}`);
+  form.classList.toggle('hidden');
+}
+
+async function editBar(key) {
+  const newName = document.getElementById(`editBarName-${key}`).value.trim();
+  const newGoalStr = document.getElementById(`editBarGoal-${key}`).value.trim();
+
+  if (!newName || !newGoalStr || isNaN(newGoalStr)) {
+    alert('Preencha o nome e um valor válido para a meta.');
+    return;
+  }
+  const newGoal = parseFloat(newGoalStr);
+  const barRef = ref(db, 'bars/' + key);
+
+  try {
+    await update(barRef, {
+      name: newName,
+      goal: newGoal
+    });
+    showNotification('Barra de progresso atualizada!');
+    toggleEditForm(key);
+  } catch (error) {
+    alert('Erro ao atualizar barra: ' + error.message);
+  }
+}
+
+async function editBarProgress(key) {
+   if (!isAdmin) {
+        alert('Somente administradores podem editar o progresso manualmente.');
+        return;
+    }
+    
+    const newProgressStr = document.getElementById(`editBarProgress-${key}`).value.trim();
+    if (newProgressStr === '' || isNaN(newProgressStr) || parseFloat(newProgressStr) < 0 || parseFloat(newProgressStr) > 100) {
+        alert('Digite um valor de progresso válido entre 0 e 100.');
+        return;
+    }
+    const newProgress = parseFloat(newProgressStr);
+    const barRef = ref(db, 'bars/' + key);
+
+    try {
+        await update(barRef, {
+            progress: newProgress
+        });
+        showNotification(`Progresso da barra atualizado para ${newProgress}%!`);
+        toggleProgressEditForm(key);
+    } catch (error) {
+        alert('Erro ao atualizar progresso: ' + error.message);
+    }
+}
+
 
 function deleteBar(key) {
   if (!key) return;
@@ -626,7 +655,10 @@ function handleFileUpload(barKey, file) {
     push(ref(db, `bars/${barKey}/proofs`), { date: new Date().toISOString(), image: e.target.result }).then(() => {
       get(ref(db, `bars/${barKey}/progress`)).then(snap => {
         let currentProgress = snap.val() || 0;
-        const newProgress = Math.min(currentProgress + 10, 100);
+        // Permite que o membro defina o progresso, mas o admin sempre pode editar para qualquer valor
+        const progressIncrement = isAdmin ? currentProgress : 10;
+        const newProgress = isAdmin ? currentProgress : Math.min(currentProgress + progressIncrement, 100);
+
         set(ref(db, `bars/${barKey}/progress`), newProgress).then(() => {
           showNotification('Prova enviada e progresso atualizado');
         });
@@ -777,7 +809,7 @@ function renderProofsPanel() {
 }
 
 function rejectProof(barKey, proofKey) {
-  if (!confirm('Deseja rejeitar esta prova? O membro terá que enviar outra prova válida.')) return;
+  if (!confirm('Deseja rejeitar esta prova? O progresso será zerado para reenvio, mas a meta permanecerá.')) return;
 
   remove(ref(db, `bars/${barKey}/proofs/${proofKey}`)).then(() => {
     set(ref(db, `bars/${barKey}/progress`), 0).then(() => {
@@ -833,6 +865,10 @@ window.handleFileUpload = handleFileUpload;
 window.sendGlobalMessage = sendGlobalMessage;
 window.renderProofsPanel = renderProofsPanel;
 window.rejectProof = rejectProof;
+window.toggleEditForm = toggleEditForm;
+window.editBar = editBar;
+window.toggleProgressEditForm = toggleProgressEditForm;
+window.editBarProgress = editBarProgress;
 
 </script>
 
